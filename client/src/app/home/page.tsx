@@ -11,8 +11,10 @@ import {
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { collection, getDocs, limit, query } from "firebase/firestore";
-import { db } from "@/lib/firebase/config";
+import { collection, getDocs, limit, query, } from "firebase/firestore";
+import { db, auth } from "@/lib/firebase/config";
+import { onAuthStateChanged, User } from "firebase/auth";
+
 
 interface Profile {
   uid: string;
@@ -29,6 +31,15 @@ interface Profile {
 export default function Home() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+
+ useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    setUser(currentUser);
+  });
+
+  return () => unsubscribe();
+}, []);
 
   const calculateAge = (dob?: string) => {
     if (!dob) return "N/A";
@@ -51,27 +62,29 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const fetchProfiles = async () => {
-      try {
-        const q = query(collection(db, "users"), limit(8));
+  const fetchProfiles = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "users"));
 
-        const snapshot = await getDocs(q);
+      const currentUser = auth.currentUser;
 
-        const users = snapshot.docs.map((doc) => ({
+      const users = snapshot.docs
+        .map((doc) => ({
           uid: doc.id,
           ...doc.data(),
-        })) as Profile[];
+        }))
+        .filter((user: any) => user.uid !== currentUser?.uid); // 👈 remove self
 
-        setProfiles(users);
-      } catch (error) {
-        console.error("Error loading profiles:", error);
-      } finally {
-        setLoadingProfiles(false);
-      }
-    };
+      setProfiles(users as Profile[]);
+    } catch (error) {
+      console.error("Error loading profiles:", error);
+    } finally {
+      setLoadingProfiles(false);
+    }
+  };
 
-    fetchProfiles();
-  }, []);
+  fetchProfiles();
+}, []);
   return (
     <main className="min-h-screen bg-white">
       {/* NAVBAR */}
@@ -90,12 +103,19 @@ export default function Home() {
             <a href="#contact">Contact Us</a>
           </div>
 
-          {/* Signup */}
-          <Link href="/auth/signup">
-            <button className="bg-pink-500 text-white px-5 py-2 rounded-full hover:bg-pink-600 transition">
-              Sign Up
-            </button>
-          </Link>
+         {user ? (
+  <Link href="/dashboard">
+    <button className="bg-pink-500 text-white px-5 py-2 rounded-full hover:bg-pink-600 transition">
+      Dashboard
+    </button>
+  </Link>
+) : (
+  <Link href="/auth/signup">
+    <button className="bg-pink-500 text-white px-5 py-2 rounded-full hover:bg-pink-600 transition">
+      Sign Up
+    </button>
+  </Link>
+)}
         </div>
       </nav>
 
