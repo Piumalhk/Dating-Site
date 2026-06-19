@@ -1,3 +1,5 @@
+import type { Timestamp } from "firebase/firestore";
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -21,5 +23,23 @@ export interface UserProfile {
   premium: boolean;
   verified: boolean;
   profileCompleted: boolean;
-  createdAt: Date;
+  createdAt: Timestamp;
+}
+
+export type LikeStatus = "pending" | "matched";
+
+export interface LikeDocument {
+  id: string;
+  fromUser: string;
+  toUser: string;
+  status: LikeStatus;
+  createdAt: Timestamp;
+}
+
+export interface MatchDocument {
+  id: string;
+  users: [string, string];
+  createdAt: Timestamp;
+  lastMessage: string | null;
+  lastMessageAt: Timestamp | null;
 }
