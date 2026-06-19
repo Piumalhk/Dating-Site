@@ -1,16 +1,9 @@
 "use client";
 
-import {
-  User,
-  onAuthStateChanged,
-} from "firebase/auth";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
-import { auth } from "../../lib/firebase/config";
+import { User, onAuthStateChanged } from "firebase/auth";
+import { doc, updateDoc } from "firebase/firestore";
+import { createContext, useContext, useEffect, useState } from "react";
+import { auth, db } from "../../lib/firebase/config";
 
 interface AuthContextType {
   user: User | null;
@@ -33,21 +26,25 @@ export default function AuthProvider({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      (currentUser) => {
-        setUser(currentUser);
-        setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+
+      // Mark user online in Firestore when they authenticate
+      if (currentUser) {
+        updateDoc(doc(db, "users", currentUser.uid), {
+          isOnline: true,
+        }).catch(() => {
+          // Silently ignore — profile doc may not exist yet (first login)
+        });
       }
-    );
+    });
 
     return unsubscribe;
   }, []);
 
   return (
-    <AuthContext.Provider
-      value={{ user, loading }}
-    >
+    <AuthContext.Provider value={{ user, loading }}>
       {children}
     </AuthContext.Provider>
   );

@@ -24,6 +24,9 @@ export interface UserProfile {
   verified: boolean;
   profileCompleted: boolean;
   createdAt: Timestamp;
+  /** Presence fields — updated on login/logout */
+  isOnline?: boolean;
+  lastSeen?: Timestamp;
 }
 
 export type LikeStatus = "pending" | "matched";
