@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase/config";
+import toast from "react-hot-toast";
 import ProtectedRoute from "@/features/auth/ProtectedRoute";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Topbar from "@/components/dashboard/Topbar";
@@ -25,43 +26,35 @@ import {
   getMatchedUserIds,
 } from "@/services/likeService";
 import type { UserProfile } from "@/types/users";
+import { Heart, ThumbsUp, MessageCircle, Eye, Sparkles, Crown } from "lucide-react";
 
 export default function DashboardPage() {
-  const [currentUserProfile, setCurrentUserProfile] =
-    useState<UserProfile | null>(null);
-  const [profiles, setProfiles] = useState<UserProfile[]>([]);
-  const [likeStates, setLikeStates] = useState<Record<string, LikeState>>({});
-  const [likingId, setLikingId] = useState<string | null>(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [profiles, setProfiles]           = useState<UserProfile[]>([]);
+  const [likeStates, setLikeStates]       = useState<Record<string, LikeState>>({});
+  const [likingId, setLikingId]           = useState<string | null>(null);
   const [loadingProfiles, setLoadingProfiles] = useState(true);
 
-  // Real-time stats
-  const [matchCount, setMatchCount] = useState(0);
-  const [likesCount, setLikesCount] = useState(0);
+  const [matchCount,  setMatchCount]  = useState(0);
+  const [likesCount,  setLikesCount]  = useState(0);
 
-  // Match modal
   const [matchModal, setMatchModal] = useState<{
     open: boolean;
     matchedProfile: UserProfile | null;
   }>({ open: false, matchedProfile: null });
 
-  // ─── Load profiles + initial like states ────────────────────────────────
+  // ── Load profiles + initial like states ─────────────────────────────────
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (currentUser) => {
-      if (!currentUser) {
-        setLoadingProfiles(false);
-        return;
-      }
+      if (!currentUser) { setLoadingProfiles(false); return; }
 
       try {
         const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-        if (!userDoc.exists()) {
-          setLoadingProfiles(false);
-          return;
-        }
+        if (!userDoc.exists()) { setLoadingProfiles(false); return; }
+
         const userData = { uid: currentUser.uid, ...userDoc.data() } as UserProfile;
         setCurrentUserProfile(userData);
 
-        // Fetch suggested profiles filtered by gender preference
         const q = query(
           collection(db, "users"),
           where("profileCompleted", "==", true),
@@ -72,12 +65,10 @@ export default function DashboardPage() {
         const suggested = snap.docs
           .map((d) => ({ uid: d.id, ...d.data() } as UserProfile))
           .filter((u) => u.uid !== currentUser.uid)
-          // Mutual interest filter
           .filter((u) => u.interestedIn === userData.gender);
 
         setProfiles(suggested);
 
-        // Batch-load existing like states to set correct button appearances
         const [likedIds, matchedIds] = await Promise.all([
           getUserSentLikeIds(currentUser.uid),
           getMatchedUserIds(currentUser.uid),
@@ -85,58 +76,45 @@ export default function DashboardPage() {
 
         const states: Record<string, LikeState> = {};
         suggested.forEach((u) => {
-          if (matchedIds.has(u.uid)) states[u.uid] = "matched";
-          else if (likedIds.has(u.uid)) states[u.uid] = "liked";
-          else states[u.uid] = "none";
+          if (matchedIds.has(u.uid))      states[u.uid] = "matched";
+          else if (likedIds.has(u.uid))   states[u.uid] = "liked";
+          else                            states[u.uid] = "none";
         });
         setLikeStates(states);
       } catch (err) {
         console.error("Error loading dashboard:", err);
+        toast.error("Failed to load profiles");
       } finally {
         setLoadingProfiles(false);
       }
     });
-
     return () => unsubAuth();
   }, []);
 
-  // ─── Real-time stats listeners ───────────────────────────────────────────
+  // ── Real-time stats ──────────────────────────────────────────────────────
   useEffect(() => {
     let unsubMatches: (() => void) | null = null;
-    let unsubLikes: (() => void) | null = null;
+    let unsubLikes:   (() => void) | null = null;
 
     const unsubAuth = onAuthStateChanged(auth, (currentUser) => {
-      // Clean up previous listeners when user changes
       unsubMatches?.();
       unsubLikes?.();
-
       if (!currentUser) return;
 
       unsubMatches = onSnapshot(
-        query(
-          collection(db, "matches"),
-          where("users", "array-contains", currentUser.uid)
-        ),
+        query(collection(db, "matches"), where("users", "array-contains", currentUser.uid)),
         (snap) => setMatchCount(snap.size)
       );
-
       unsubLikes = onSnapshot(
-        query(
-          collection(db, "likes"),
-          where("toUser", "==", currentUser.uid)
-        ),
+        query(collection(db, "likes"), where("toUser", "==", currentUser.uid)),
         (snap) => setLikesCount(snap.size)
       );
     });
 
-    return () => {
-      unsubAuth();
-      unsubMatches?.();
-      unsubLikes?.();
-    };
+    return () => { unsubAuth(); unsubMatches?.(); unsubLikes?.(); };
   }, []);
 
-  // ─── Like handler ────────────────────────────────────────────────────────
+  // ── Like handler ─────────────────────────────────────────────────────────
   const handleLike = useCallback(
     async (targetUserId: string) => {
       const currentUser = auth.currentUser;
@@ -148,14 +126,15 @@ export default function DashboardPage() {
 
         if (result.matched) {
           setLikeStates((prev) => ({ ...prev, [targetUserId]: "matched" }));
-          const matchedProfile =
-            profiles.find((p) => p.uid === targetUserId) ?? null;
+          const matchedProfile = profiles.find((p) => p.uid === targetUserId) ?? null;
           setMatchModal({ open: true, matchedProfile });
+          toast.success("🎉 It's a Match!");
         } else {
           setLikeStates((prev) => ({ ...prev, [targetUserId]: "liked" }));
+          toast.success("❤️ Like sent!");
         }
-      } catch (err) {
-        console.error("Failed to send like:", err);
+      } catch {
+        toast.error("❌ Failed to send like");
       } finally {
         setLikingId(null);
       }
@@ -163,54 +142,100 @@ export default function DashboardPage() {
     [profiles, likingId]
   );
 
+  const firstName = currentUserProfile?.firstName || "there";
+
   return (
     <ProtectedRoute>
-      <div className="flex bg-gray-100 min-h-screen">
+      <div className="flex bg-gray-50 min-h-screen">
         <Sidebar />
 
         <div className="flex-1 min-w-0">
           <Topbar />
 
-          <div className="p-6 space-y-6">
-            {/* Welcome banner */}
-            <div className="bg-linear-to-r from-pink-500 to-purple-600 text-white rounded-3xl p-8">
-              <h2 className="text-3xl font-bold">Welcome Back ❤️</h2>
-              <p className="mt-2 text-pink-100">
-                Find your perfect match today.
-              </p>
+          <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
+            {/* ── Welcome Hero ─────────────────────────────────────────── */}
+            <div className="relative overflow-hidden bg-linear-to-br from-pink-500 via-rose-500 to-purple-600 text-white rounded-3xl p-7 sm:p-10 animate-gradient-x shadow-xl shadow-pink-200/50">
+              {/* Background decoration */}
+              <div className="absolute top-0 right-0 w-64 h-64 rounded-full bg-white/5 -translate-y-1/2 translate-x-1/2" />
+              <div className="absolute bottom-0 left-0 w-40 h-40 rounded-full bg-white/5 translate-y-1/2 -translate-x-1/2" />
+
+              <div className="relative">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles size={18} className="text-yellow-300" />
+                  <span className="text-sm font-medium text-white/80">Daily Matches Ready</span>
+                </div>
+                <h2 className="text-2xl sm:text-4xl font-bold">
+                  Welcome back, {firstName}! ❤️
+                </h2>
+                <p className="mt-2 text-pink-100 text-sm sm:text-base max-w-md">
+                  Your perfect match could be just one swipe away. Explore today&apos;s suggested profiles below.
+                </p>
+              </div>
             </div>
 
-            {/* Stats — real-time */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard title="Matches" value={String(matchCount)} />
-              <StatCard title="Likes Received" value={String(likesCount)} />
-              <StatCard title="Messages" value="0" />
-              <StatCard title="Profile Views" value="0" />
+            {/* ── Stats Grid ────────────────────────────────────────────── */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard
+                title="Matches"
+                value={matchCount}
+                icon={Heart}
+                gradient="bg-linear-to-br from-pink-500 to-rose-600"
+                iconBg="bg-white/20"
+                trend="Mutual connections"
+              />
+              <StatCard
+                title="Likes Received"
+                value={likesCount}
+                icon={ThumbsUp}
+                gradient="bg-linear-to-br from-purple-500 to-indigo-600"
+                iconBg="bg-white/20"
+                trend="People who liked you"
+              />
+              <StatCard
+                title="Messages"
+                value="—"
+                icon={MessageCircle}
+                gradient="bg-linear-to-br from-amber-400 to-orange-500"
+                iconBg="bg-white/20"
+                trend="Active conversations"
+              />
+              <StatCard
+                title="Profile Views"
+                value="—"
+                icon={Eye}
+                gradient="bg-linear-to-br from-teal-400 to-cyan-600"
+                iconBg="bg-white/20"
+                trend="This week"
+              />
             </div>
 
-            {/* Suggested profiles */}
-            <div className="bg-white rounded-3xl p-6 shadow">
-              <h2 className="text-2xl font-bold mb-6">Suggested Profiles</h2>
+            {/* ── Suggested Profiles ───────────────────────────────────── */}
+            <div className="bg-white rounded-3xl p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Suggested Profiles</h2>
+                  <p className="text-sm text-gray-400 mt-0.5">Curated matches based on your preferences</p>
+                </div>
+                {!loadingProfiles && profiles.length > 0 && (
+                  <span className="text-xs font-medium text-pink-600 bg-pink-50 px-3 py-1 rounded-full">
+                    {profiles.length} profiles
+                  </span>
+                )}
+              </div>
 
               {loadingProfiles ? (
-                /* Skeleton loader */
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                   {Array.from({ length: 8 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="bg-gray-100 rounded-2xl h-80 animate-pulse"
-                    />
+                    <div key={i} className="bg-gray-100 rounded-3xl h-72 animate-pulse" />
                   ))}
                 </div>
               ) : profiles.length === 0 ? (
-                <div className="text-center py-16 text-gray-400">
-                  <p className="text-5xl mb-4">🔍</p>
-                  <p className="text-xl font-medium text-gray-600">
-                    No matching profiles found.
-                  </p>
-                  <p className="text-sm mt-2">
-                    Complete your profile or broaden your preferences.
-                  </p>
+                <div className="text-center py-20">
+                  <div className="w-20 h-20 rounded-full bg-pink-50 flex items-center justify-center mx-auto mb-4">
+                    <Sparkles size={32} className="text-pink-400" />
+                  </div>
+                  <p className="text-lg font-semibold text-gray-700">No matching profiles found</p>
+                  <p className="text-sm text-gray-400 mt-1">Complete your profile or update your preferences.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -227,34 +252,36 @@ export default function DashboardPage() {
               )}
             </div>
 
-            {/* Premium CTA */}
-            <div className="bg-yellow-50 border border-yellow-200 rounded-3xl p-6 flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-yellow-800">
-                  Upgrade To Premium
-                </h2>
-                <p className="mt-1 text-yellow-700 text-sm">
+            {/* ── Premium CTA ───────────────────────────────────────────── */}
+            <div className="relative overflow-hidden bg-linear-to-r from-amber-400 to-orange-500 rounded-3xl p-6 sm:p-8 flex flex-wrap items-center justify-between gap-4 shadow-lg shadow-amber-200/50">
+              <div className="absolute inset-0 opacity-10">
+                <div className="absolute top-2 right-8 text-6xl">✨</div>
+                <div className="absolute bottom-2 left-8 text-4xl">⭐</div>
+              </div>
+              <div className="relative">
+                <div className="flex items-center gap-2 mb-1">
+                  <Crown size={18} className="text-white" />
+                  <span className="text-white font-semibold text-sm">Premium Membership</span>
+                </div>
+                <h3 className="text-white font-bold text-xl sm:text-2xl">Unlock Your Full Potential</h3>
+                <p className="text-white/80 text-sm mt-1">
                   See who liked you, unlimited likes, advanced filters and more.
                 </p>
               </div>
-              <button className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2.5 rounded-xl font-medium transition">
-                Upgrade Now
+              <button className="relative bg-white text-orange-600 font-bold px-7 py-3 rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 shrink-0">
+                Upgrade Now ✨
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Match celebration modal */}
       <MatchModal
         isOpen={matchModal.open}
         matchedUser={matchModal.matchedProfile}
         currentUser={currentUserProfile}
         onClose={() => setMatchModal({ open: false, matchedProfile: null })}
-        onMessage={() => {
-          // TODO: route to /messages/{matchId} once messaging is built
-          setMatchModal({ open: false, matchedProfile: null });
-        }}
+        onMessage={() => setMatchModal({ open: false, matchedProfile: null })}
       />
     </ProtectedRoute>
   );
